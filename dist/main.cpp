@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
+#include <thread>
+#include <chrono>
 #include "common/ids.h"
 #include "common/schema.h"
 #include "common/timers.h"
@@ -14,24 +16,27 @@
 #include "control/control.h"
 
 // ------------ Real-time budgets (ms) ------------
-static constexpr uint32_t TICK_MS = 1000;    // firm 1s control loop
-static constexpr uint32_t BUDGET_PRED = 350; // per-slice prediction budget at P
-static constexpr uint32_t BUDGET_CTRL = 150; // controller decision time
+static constexpr uint32_t TICK_MS = 250;     // tighter 250 ms control loop
+static constexpr uint32_t BUDGET_PRED = 120; // per-slice prediction budget
+static constexpr uint32_t BUDGET_CTRL = 80;  // controller decision time
 
-// ------------ Back-pressure levels --------------
-/*
-  level 0: normal (stride=1)
-  level 1: light thinning (stride=2)
-  level 2: medium (stride=4)
-  level 3: heavy (stride=8)
-*/
+// ------------ Back-pressure tag and helpers ------------
+#ifndef TAG_BP
+#define TAG_BP 9001
+#endif
+
 static inline int stride_for_level(int level)
 {
   if (level < 0)
     level = 0;
   if (level > 3)
     level = 3;
-  return 1 << level;
+  return 1 << level; // 1,2,4,8
+}
+
+static void send_bp_to_agg(int rAgg, int level)
+{
+  MPI_Send(&level, 1, MPI_INT, rAgg, TAG_BP, MPI_COMM_WORLD);
 }
 
 static void die(const char *m)
@@ -40,13 +45,6 @@ static void die(const char *m)
   MPI_Abort(MPI_COMM_WORLD, 1);
 }
 
-// Broadcast a simple BP level integer to Aggregator (rAgg)
-static void send_bp_to_agg(int rAgg, int level)
-{
-  MPI_Send(&level, 1, MPI_INT, rAgg, TAG_BP, MPI_COMM_WORLD);
-}
-
-// Poll and drain all pending BP messages (INT) addressed to 'rank'.
 static void drain_bp_for_rank(int /*rank*/, int &bp_level_accum)
 {
   int flag = 0;
@@ -76,9 +74,9 @@ int main(int argc, char **argv)
     die("need at least 4 ranks: C, P, A, I");
 
   // Common configs
-  IngestConfig icfg{.junctions = 3000, .lanes_per = 3, .tick_ms = TICK_MS};
+  IngestConfig icfg{.junctions = 20000, .lanes_per = 3, .tick_ms = TICK_MS};
   AggConfig acfg{.junctions = icfg.junctions, .lanes_per = icfg.lanes_per};
-  PredConfig pcfg{.prefer_opencl = true};
+  PredConfig pcfg{.prefer_opencl = false}; // force CPU path so PRED_WORK applies
   CtrlConfig ccfg{};
 
   const uint32_t TOTAL_TICKS = 40;
@@ -117,19 +115,18 @@ int main(int argc, char **argv)
   {
     Aggregator agg(acfg);
     std::vector<SensorSample> samples;
-    std::vector<Features> feats;
-    std::vector<Features> thin; // thinned features under BP
+    std::vector<Features> feats, thin;
 
-    int bp_level = 0; // latched per tick
+    int bp_level = 0;
 
-    for (uint32_t t = 0; t < TOTAL_TICKS; ++t)
+    for (uint32_t t = 0; t < 40; ++t)
     {
-      // Drain any BP messages before we size our work
+      // Receive BP updates before shaping work
       bp_level = 0;
       drain_bp_for_rank(rAgg, bp_level);
       int stride = stride_for_level(bp_level);
 
-      // Receive this tick's samples from Ingestor
+      // Receive this tick
       MPI_Status st;
       uint32_t tick_id;
       int cnt = 0;
@@ -138,10 +135,8 @@ int main(int argc, char **argv)
       samples.resize(cnt);
       MPI_Recv(samples.data(), cnt * sizeof(SensorSample), MPI_BYTE, rIng, TAG_FEAT, MPI_COMM_WORLD, &st);
 
-      // Map features
+      // Map features and thin by stride
       agg.map_features(samples, feats);
-
-      // Thin features according to BP level by stride sampling
       thin.clear();
       thin.reserve((feats.size() + stride - 1) / stride);
       for (size_t i = 0; i < feats.size(); i += stride)
@@ -171,29 +166,35 @@ int main(int argc, char **argv)
     std::vector<Features> feats;
     std::vector<Prediction> preds;
 
-    for (uint32_t t = 0; t < TOTAL_TICKS; ++t)
+    // Banner so we can see env propagation
+    const char *w = std::getenv("PRED_WORK");
+    std::printf("[PRED rank=%d] prefer_opencl=%d PRED_WORK=%s\n",
+                rank, (int)pcfg.prefer_opencl, w ? w : "null");
+
+    for (uint32_t t = 0; t < 40; ++t)
     {
       MPI_Status st;
       uint32_t tick_id;
       int n = 0;
       MPI_Recv(&tick_id, 1, MPI_UNSIGNED, P + 1, TAG_FEAT, MPI_COMM_WORLD, &st);
       MPI_Recv(&n, 1, MPI_INT, P + 1, TAG_FEAT, MPI_COMM_WORLD, &st);
-
       feats.resize(n);
       if (n > 0)
         MPI_Recv(feats.data(), n * sizeof(Features), MPI_BYTE, P + 1, TAG_FEAT, MPI_COMM_WORLD, &st);
 
-      // Prediction with per-slice budget; if exceed, ask Aggregator to thin next tick.
-      Deadline dl{.start_ms = now_ms(), .budget_ms = BUDGET_PRED};
+      // Time the slice
+      uint64_t t0 = now_ms();
       pred.predict_batch(feats, preds);
-      uint32_t dur = dl.elapsed();
+      uint32_t dur = (uint32_t)(now_ms() - t0);
+
+      // If we exceeded our slice budget, ask Aggregator to thin next tick
       if (dur > BUDGET_PRED)
       {
-        int level = 1;                                               // request light thinning
-        MPI_Send(&level, 1, MPI_INT, P + 1, TAG_BP, MPI_COMM_WORLD); // to Aggregator
+        int level = 1; // light request; controller may escalate
+        MPI_Send(&level, 1, MPI_INT, P + 1, TAG_BP, MPI_COMM_WORLD);
       }
 
-      // Send to Controller
+      // Send to controller
       MPI_Send(&tick_id, 1, MPI_UNSIGNED, 0, TAG_PRED, MPI_COMM_WORLD);
       int outn = (int)preds.size();
       MPI_Send(&outn, 1, MPI_INT, 0, TAG_PRED, MPI_COMM_WORLD);
@@ -207,25 +208,23 @@ int main(int argc, char **argv)
   {
     Controller ctrl(ccfg);
 
-    // Establish a firm timeline: first tick starts a bit in the future
     uint64_t base0 = now_ms();
-    uint64_t first_tick_at = base0 + 300; // 300ms from now; gives everyone time to start
-
+    uint64_t first_tick_at = base0 + 300; // give everyone time to boot
     uint32_t misses = 0;
 
-    for (uint32_t t = 0; t < TOTAL_TICKS; ++t)
+    for (uint32_t t = 0; t < 40; ++t)
     {
       uint64_t tick_start = first_tick_at + t * TICK_MS;
       uint64_t tick_end = tick_start + TICK_MS;
 
-      // Align to tick start (optional; keeps cadence clean)
+      // Align to tick start to keep a stable cadence
       sleep_until_ms(tick_start);
 
       std::vector<Prediction> all;
       all.reserve(4096);
-
       int received_from = 0;
-      // Non-blocking gather loop until deadline or all predictors reported
+
+      // Non-blocking gather until deadline or all predictors reported
       while (now_ms() < tick_end && received_from < P)
       {
         int flag = 0;
@@ -236,7 +235,6 @@ int main(int argc, char **argv)
           std::this_thread::sleep_for(std::chrono::milliseconds(1));
           continue;
         }
-        // Receive one slice
         uint32_t tick_id;
         int n = 0;
         MPI_Recv(&tick_id, 1, MPI_UNSIGNED, st.MPI_SOURCE, TAG_PRED, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -252,13 +250,12 @@ int main(int argc, char **argv)
       if (!complete)
         misses++;
 
-      // Controller decision (budgeted)
-      Deadline dctrl{.start_ms = now_ms(), .budget_ms = BUDGET_CTRL};
+      // Do a quick decision phase within a budget
+      uint64_t c0 = now_ms();
       std::vector<PhaseCmd> cmds;
-      ctrl.decide(all, cmds, /*predictions_complete*/ complete);
-      (void)dctrl; // reserved for future accounting
+      ctrl.decide(all, cmds, complete);
+      (void)c0; // reserved for future timing if needed
 
-      // Quick visibility: top1 and running miss ratio
       if (!all.empty())
       {
         std::nth_element(all.begin(), all.begin() + 1, all.end(),
@@ -269,20 +266,18 @@ int main(int argc, char **argv)
       std::printf("[CTRL] tick %2u | slices %d/%d | preds=%zu | top0=%u | miss-ratio=%.2f\n",
                   t, complete ? P : received_from, P, all.size(), all.empty() ? 9999 : all[0].junction, miss_ratio);
 
-      // If we missed the deadline, request stronger back-pressure for next tick.
+      // Escalate or relax back-pressure for the next tick
       if (!complete)
       {
         int level = (miss_ratio > 0.20) ? 3 : (miss_ratio > 0.10 ? 2 : 1);
-        send_bp_to_agg(P + 1, level); // to Aggregator
+        send_bp_to_agg(P + 1, level);
       }
       else
       {
-        // When healthy, nudge Aggregator back toward normal
-        int level = 0;
-        send_bp_to_agg(P + 1, level);
+        send_bp_to_agg(P + 1, 0); // healthy
       }
 
-      // Hold the 1s cadence
+      // Hold firm cadence
       sleep_until_ms(tick_end);
     }
   }
