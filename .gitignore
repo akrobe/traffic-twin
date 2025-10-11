@@ -1,0 +1,5 @@
+# build
+bin/
+results/
+*.o
+.DS_Store

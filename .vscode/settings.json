@@ -1,0 +1,8 @@
+{
+  "files.associations": {
+    "*.tcc": "cpp",
+    "*.cl": "opencl"
+  },
+  "editor.formatOnSave": true,
+  "terminal.integrated.defaultProfile.osx": "bash"
+}

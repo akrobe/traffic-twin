@@ -1,0 +1,33 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug seq_twin",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/seq_twin",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "MIMode": "lldb",
+      "externalConsole": false,
+      "environment": [
+        { "name": "PATH", "value": "/opt/homebrew/bin:${env:PATH}" }
+      ]
+    },
+    {
+      "name": "Debug smp_twin",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/smp_twin",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "MIMode": "lldb",
+      "externalConsole": false,
+      "environment": [
+        { "name": "PATH", "value": "/opt/homebrew/bin:${env:PATH}" }
+      ]
+    }
+  ]
+}
