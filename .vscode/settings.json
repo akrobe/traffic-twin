@@ -1,8 +1,26 @@
+// .vscode/settings.json
 {
   "files.associations": {
     "*.tcc": "cpp",
-    "*.cl": "opencl"
+    "*.cl": "opencl",
+    "chrono": "cpp",
+    "array": "cpp",
+    "vector": "cpp",
+    "algorithm": "cpp"
   },
   "editor.formatOnSave": true,
-  "terminal.integrated.defaultProfile.osx": "bash"
+  "C_Cpp.default.configurationProvider": "ms-vscode.makefile-tools",
+  "C_Cpp.errorSquiggles": "enabled",
+  "C_Cpp.intelliSenseEngineFallback": "Disabled",
+  "terminal.integrated.defaultProfile.osx": "bash",
+  "terminal.integrated.profiles.osx": {
+    "bash": {
+      "path": "/bin/bash",
+      "args": [
+        "-l"
+      ]
+    }
+  },
+  "cmake.configureOnOpen": false,
+  "makefile.configureOnOpen": false
 }

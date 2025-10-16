@@ -1,3 +1,4 @@
+// .vscode/tasks.json
 {
   "version": "2.0.0",
   "tasks": [
@@ -6,45 +7,81 @@
       "type": "shell",
       "command": "make seq",
       "group": "build",
-      "problemMatcher": ["$gcc"],
-      "options": { "env": { "PATH": "/opt/homebrew/bin:${env:PATH}" } }
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "options": {
+        "env": {
+          "PATH": "/opt/homebrew/bin:${env:PATH}"
+        }
+      }
     },
     {
       "label": "Build: smp",
       "type": "shell",
       "command": "make smp",
       "group": "build",
-      "problemMatcher": ["$gcc"],
-      "options": { "env": { "PATH": "/opt/homebrew/bin:${env:PATH}" } }
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "options": {
+        "env": {
+          "PATH": "/opt/homebrew/bin:${env:PATH}"
+        }
+      }
     },
     {
       "label": "Build: dist",
       "type": "shell",
       "command": "make dist",
       "group": "build",
-      "problemMatcher": ["$gcc"],
-      "options": { "env": { "PATH": "/opt/homebrew/bin:${env:PATH}" } }
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "options": {
+        "env": {
+          "PATH": "/opt/homebrew/bin:${env:PATH}"
+        }
+      }
     },
     {
       "label": "Run: seq",
       "type": "shell",
-      "dependsOn": ["Build: seq"],
+      "dependsOn": [
+        "Build: seq"
+      ],
       "command": "scripts/run_seq.sh",
-      "options": { "env": { "PATH": "/opt/homebrew/bin:${env:PATH}" } }
+      "options": {
+        "env": {
+          "PATH": "/opt/homebrew/bin:${env:PATH}"
+        }
+      }
     },
     {
       "label": "Run: smp",
       "type": "shell",
-      "dependsOn": ["Build: smp"],
+      "dependsOn": [
+        "Build: smp"
+      ],
       "command": "scripts/run_smp.sh",
-      "options": { "env": { "PATH": "/opt/homebrew/bin:${env:PATH}" } }
+      "options": {
+        "env": {
+          "PATH": "/opt/homebrew/bin:${env:PATH}"
+        }
+      }
     },
     {
       "label": "Run: dist (local 4 ranks)",
       "type": "shell",
-      "dependsOn": ["Build: dist"],
+      "dependsOn": [
+        "Build: dist"
+      ],
       "command": "scripts/run_dist_local.sh",
-      "options": { "env": { "PATH": "/opt/homebrew/bin:${env:PATH}" } }
+      "options": {
+        "env": {
+          "PATH": "/opt/homebrew/bin:${env:PATH}"
+        }
+      }
     }
   ]
 }

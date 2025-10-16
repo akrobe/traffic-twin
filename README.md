@@ -11,31 +11,8 @@ This repository builds three variants of the traffic digital twin:
 - **dist** — distributed micro-pipeline with MPI ranks:
   - `Controller` (C), one or more `Predictor` workers (P), `Aggregator` (A), `Ingestor` (I)
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-=======
 ---
 
->>>>>>> Stashed changes
-=======
----
-
->>>>>>> Stashed changes
-=======
----
-
->>>>>>> Stashed changes
-=======
----
-
->>>>>>> Stashed changes
-=======
----
-
->>>>>>> Stashed changes
 ### Prerequisites (macOS, Apple Silicon)
 
 ```bash
@@ -43,24 +20,4 @@ This repository builds three variants of the traffic digital twin:
 brew install libomp open-mpi pocl clinfo
 
 # Ensure brew binaries are on PATH in each new shell
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
 export PATH=/opt/homebrew/bin:$PATH
-=======
-export PATH=/opt/homebrew/bin:$PATH
->>>>>>> Stashed changes
-=======
-export PATH=/opt/homebrew/bin:$PATH
->>>>>>> Stashed changes
-=======
-export PATH=/opt/homebrew/bin:$PATH
->>>>>>> Stashed changes
-=======
-export PATH=/opt/homebrew/bin:$PATH
->>>>>>> Stashed changes
-=======
-export PATH=/opt/homebrew/bin:$PATH
->>>>>>> Stashed changes

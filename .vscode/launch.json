@@ -1,3 +1,4 @@
+// .vscode/launch.json
 {
   "version": "0.2.0",
   "configurations": [
@@ -12,7 +13,10 @@
       "MIMode": "lldb",
       "externalConsole": false,
       "environment": [
-        { "name": "PATH", "value": "/opt/homebrew/bin:${env:PATH}" }
+        {
+          "name": "PATH",
+          "value": "/opt/homebrew/bin:${env:PATH}"
+        }
       ]
     },
     {
@@ -26,7 +30,10 @@
       "MIMode": "lldb",
       "externalConsole": false,
       "environment": [
-        { "name": "PATH", "value": "/opt/homebrew/bin:${env:PATH}" }
+        {
+          "name": "PATH",
+          "value": "/opt/homebrew/bin:${env:PATH}"
+        }
       ]
     }
   ]
