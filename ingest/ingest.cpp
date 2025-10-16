@@ -1,25 +1,40 @@
-// ingest/ingest.h
-#pragma once
-#include <cstdint>
-#include <vector>
-#include <random>
-#include "common/schema.h"
+// ingest/ingest.cpp
+#include "ingest/ingest.h"
+#include <algorithm>
+#include <cmath>
 
-struct IngestConfig
-{
-  uint32_t junctions = 500;
-  uint32_t lanes_per = 3;
-  uint32_t tick_ms = 1000; // control tick
-};
+Ingestor::Ingestor(const IngestConfig& cfg) : cfg_(cfg), rng_(12345) {}
 
-class Ingestor
-{
-public:
-  explicit Ingestor(const IngestConfig &cfg);
-  // produce one tick worth of synthetic samples
-  void generate(uint32_t tick_id, std::vector<SensorSample> &out);
+void Ingestor::generate(uint32_t tick_id, std::vector<SensorSample>& out) {
+  out.clear();
+  out.reserve(cfg_.junctions * cfg_.lanes_per);
 
-private:
-  IngestConfig cfg_;
-  std::mt19937 rng_;
-};
+  std::uniform_int_distribution<int> base(0, 10);
+  std::normal_distribution<float> rush(0.f, 1.f);
+
+  // simple diurnal pattern + noise
+  float hour = std::fmod((tick_id / 3600.f), 24.f);
+  float peak = (hour>7 && hour<9) || (hour>16 && hour<18) ? 1.5f : 1.0f;
+
+  for (uint32_t j=0; j<cfg_.junctions; ++j) {
+    for (uint32_t l=0; l<cfg_.lanes_per; ++l) {
+      SensorSample s{};
+      s.ts_ms    = tick_id * cfg_.tick_ms;
+      s.junction = (uint16_t)j;
+      s.lane     = (uint16_t)l;
+
+      int   b     = base(rng_);
+      float noise = rush(rng_) * 2.f;
+
+      int arrivals10 = std::max(0, int((8 + b) * peak + noise)) * 10;
+      int qlen       = std::max(0, int((b + (peak>1.0f?5:1)) + std::max(0.f, noise)));
+      int speed10    = std::max(1, 50 - qlen) * 10;
+
+      s.arrivals  = (uint16_t)arrivals10;  // vehicles/s *10
+      s.q_len     = (uint16_t)qlen;        // vehicles queued
+      s.avg_speed = (uint16_t)speed10;     // km/h *10
+
+      out.push_back(s);
+    }
+  }
+}
