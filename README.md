@@ -15,6 +15,11 @@ This repository builds three variants of the traffic digital twin:
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+=======
+---
+
+>>>>>>> Stashed changes
 =======
 ---
 
@@ -42,7 +47,11 @@ brew install libomp open-mpi pocl clinfo
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 export PATH=/opt/homebrew/bin:$PATH
+=======
+export PATH=/opt/homebrew/bin:$PATH
+>>>>>>> Stashed changes
 =======
 export PATH=/opt/homebrew/bin:$PATH
 >>>>>>> Stashed changes
