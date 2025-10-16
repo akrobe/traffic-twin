@@ -17,18 +17,18 @@ DIST_SRC = dist/main.cpp ingest/ingest.cpp aggregate/aggregate.cpp predict/predi
 all: seq smp dist
 
 seq:
-mkdir -p bin
-$(CXX) $(CXXFLAGS) $(SEQ_SRC) $(OPENCL_LIB) -o bin/seq_twin
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) $(SEQ_SRC) $(OPENCL_LIB) -o bin/seq_twin
 
 smp:
-mkdir -p bin
-$(CXX) $(CXXFLAGS) $(OMP_CFLAGS) $(SMP_SRC) $(OPENCL_LIB) $(OMP_LDFLAGS) -o bin/smp_twin
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) $(OMP_CFLAGS) $(SMP_SRC) $(OPENCL_LIB) $(OMP_LDFLAGS) -o bin/smp_twin
 
 dist:
-mkdir -p bin
-$(MPICXX) $(CXXFLAGS) $(OMP_CFLAGS) $(DIST_SRC) $(OPENCL_LIB) $(OMP_LDFLAGS) -o bin/dist_twin
+	mkdir -p bin
+	$(MPICXX) $(CXXFLAGS) $(OMP_CFLAGS) $(DIST_SRC) $(OPENCL_LIB) $(OMP_LDFLAGS) -o bin/dist_twin
 
 clean:
-rm -rf bin results *.o **/*.o
+	rm -rf bin results *.o **/*.o
 
 .PHONY: all seq smp dist clean
