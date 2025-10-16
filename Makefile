@@ -1,4 +1,6 @@
-# ------- macOS (Apple Silicon) toolchain -------
+# Makefile
+
+# ------- OS/Toolchain detection -------
 UNAME_S := $(shell uname -s)
 BREW_PREFIX ?= /opt/homebrew
 
@@ -11,15 +13,22 @@ CXXFLAGS = -O3 -std=gnu++20 -Wall -Wextra -march=native -I./ -I./common
 OMP_CFLAGS  = -Xpreprocessor -fopenmp -I$(BREW_PREFIX)/opt/libomp/include
 OMP_LDFLAGS = -L$(BREW_PREFIX)/opt/libomp/lib -lomp
 
-# OpenCL on macOS
-OPENCL_LIB = -framework OpenCL
+# OpenCL (macOS framework vs. generic libOpenCL on Linux)
+ifeq ($(UNAME_S),Darwin)
+  OPENCL_LIB = -framework OpenCL
+else
+  OPENCL_LIB = -lOpenCL
+endif
 
-SEQ_SRC = seq/main.cpp \
-          ingest/ingest.cpp aggregate/aggregate.cpp predict/predict.cpp control/control.cpp
-SMP_SRC = smp/main.cpp \
-          ingest/ingest.cpp aggregate/aggregate.cpp predict/predict.cpp control/control.cpp
+SEQ_SRC  = seq/main.cpp \
+           ingest/ingest.cpp aggregate/aggregate.cpp predict/predict.cpp control/control.cpp
+SMP_SRC  = smp/main.cpp \
+           ingest/ingest.cpp aggregate/aggregate.cpp predict/predict.cpp control/control.cpp
 DIST_SRC = dist/main.cpp \
-          ingest/ingest.cpp aggregate/aggregate.cpp predict/predict.cpp control/control.cpp
+           ingest/ingest.cpp aggregate/aggregate.cpp predict/predict.cpp control/control.cpp
+
+# Ensure Homebrew binaries on PATH for tasks/shells that don't inherit user env
+export PATH := $(BREW_PREFIX)/bin:$(PATH)
 
 all: seq smp dist
 
@@ -38,4 +47,15 @@ dist:
 clean:
 	rm -rf bin results *.o **/*.o
 
-.PHONY: all seq smp dist clean
+# ----- Convenience run targets (useful for demos) -----
+run-seq: seq
+	./bin/seq_twin
+
+run-smp: smp
+	./bin/smp_twin
+
+run-dist: dist
+	# 1 controller, 1 predictor, 1 aggregator, 1 ingestor
+	mpirun --oversubscribe -np 4 ./bin/dist_twin
+
+.PHONY: all seq smp dist clean run-seq run-smp run-dist

@@ -1,3 +1,4 @@
+// dist/main.cpp
 #include <mpi.h>
 #include <vector>
 #include <algorithm>
@@ -5,6 +6,12 @@
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
+<<<<<<< Updated upstream
+=======
+#include <thread>
+#include <chrono>
+
+>>>>>>> Stashed changes
 #include "common/ids.h"
 #include "common/schema.h"
 #include "common/timers.h"
@@ -13,10 +20,28 @@
 #include "predict/predict.h"
 #include "control/control.h"
 
+<<<<<<< Updated upstream
 // ------------ Real-time budgets (ms) ------------
 static constexpr uint32_t TICK_MS = 1000;    // firm 1s control loop
 static constexpr uint32_t BUDGET_PRED = 350; // per-slice prediction budget at P
 static constexpr uint32_t BUDGET_CTRL = 150; // controller decision time
+=======
+// 1s firm tick
+static constexpr uint32_t TICK_MS = 1000;
+static constexpr uint32_t BUDGET_P = 350;
+static constexpr uint32_t BUDGET_C = 150;
+
+static inline uint32_t env_u32(const char *n, uint32_t d)
+{
+  if (const char *e = std::getenv(n))
+  {
+    long v = std::strtol(e, nullptr, 10);
+    if (v > 0 && v < 100000000)
+      return (uint32_t)v;
+  }
+  return d;
+}
+>>>>>>> Stashed changes
 
 // ------------ Back-pressure levels --------------
 /*
@@ -31,6 +56,7 @@ static inline int stride_for_level(int level)
     level = 0;
   if (level > 3)
     level = 3;
+<<<<<<< Updated upstream
   return 1 << level;
 }
 
@@ -48,6 +74,16 @@ static void send_bp_to_agg(int rAgg, int level)
 
 // Poll and drain all pending BP messages (INT) addressed to 'rank'.
 static void drain_bp_for_rank(int /*rank*/, int &bp_level_accum)
+=======
+  return 1 << level; // 0→1,1→2,2→4,3→8
+}
+
+static void send_bp_to_agg(int rAgg, int level)
+{
+  MPI_Send(&level, 1, MPI_INT, rAgg, TAG_BP, MPI_COMM_WORLD);
+}
+static void drain_bp(int &accum)
+>>>>>>> Stashed changes
 {
   int flag = 0;
   MPI_Status st;
@@ -58,7 +94,7 @@ static void drain_bp_for_rank(int /*rank*/, int &bp_level_accum)
     {
       int lvl = 0;
       MPI_Recv(&lvl, 1, MPI_INT, st.MPI_SOURCE, TAG_BP, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      bp_level_accum = std::max(bp_level_accum, lvl); // keep strongest
+      accum = std::max(accum, lvl);
     }
   } while (flag);
 }
@@ -66,57 +102,61 @@ static void drain_bp_for_rank(int /*rank*/, int &bp_level_accum)
 int main(int argc, char **argv)
 {
   MPI_Init(&argc, &argv);
-  int world, rank;
+  int world = 0, rank = 0;
   MPI_Comm_size(MPI_COMM_WORLD, &world);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-  int P = std::max(1, world - 3); // predictors
-  int rCtrl = 0, rAgg = P + 1, rIng = P + 2;
   if (world < 4)
-    die("need at least 4 ranks: C, P, A, I");
+  {
+    std::fprintf(stderr, "FATAL: need >=4 ranks\n");
+    MPI_Abort(MPI_COMM_WORLD, 1);
+  }
+  const int P = std::max(1, world - 3);
+  const int rCtrl = 0, rAgg = P + 1, rIng = P + 2;
+  (void)rCtrl; // silence unused warning
 
+<<<<<<< Updated upstream
   // Common configs
   IngestConfig icfg{.junctions = 3000, .lanes_per = 3, .tick_ms = TICK_MS};
   AggConfig acfg{.junctions = icfg.junctions, .lanes_per = icfg.lanes_per};
+=======
+  const uint32_t J = env_u32("JUNCTIONS", 20000);
+  IngestConfig icfg{.junctions = J, .lanes_per = 3, .tick_ms = TICK_MS};
+  AggConfig acfg{.junctions = J, .lanes_per = 3};
+>>>>>>> Stashed changes
   PredConfig pcfg{.prefer_opencl = true};
   CtrlConfig ccfg{};
 
-  const uint32_t TOTAL_TICKS = 40;
+  if (rank == 0)
+  {
+    std::fprintf(stderr, "[BOOT] world=%d, predictors=%d | Ctrl=0 Agg=%d Ing=%d\n", world, P, rAgg, rIng);
+    std::fflush(stderr);
+  }
 
-  // ---------------- Ingestor ----------------
+  const uint32_t TICKS = 40;
+
   if (rank == rIng)
   {
     Ingestor ing(icfg);
     std::vector<SensorSample> samples;
-
-    // Align to next second for a clean start
-    uint64_t base0 = now_ms();
-    uint64_t first_tick_at = base0 + 200; // 200ms from now
-    sleep_until_ms(first_tick_at);
-
-    for (uint32_t t = 0; t < TOTAL_TICKS; ++t)
+    uint64_t base = now_ms(), first = base + 200;
+    sleep_until_ms(first);
+    for (uint32_t t = 0; t < TICKS; ++t)
     {
-      uint64_t tick_start = first_tick_at + t * TICK_MS;
-
-      // Generate synchronously at tick start
+      uint64_t tick_start = first + t * TICK_MS;
       ing.generate(t, samples);
-
-      // Send to Aggregator: tick id + count + payload (bytes)
       int cnt = (int)samples.size();
       MPI_Send(&t, 1, MPI_UNSIGNED, rAgg, TAG_FEAT, MPI_COMM_WORLD);
       MPI_Send(&cnt, 1, MPI_INT, rAgg, TAG_FEAT, MPI_COMM_WORLD);
-      MPI_Send(samples.data(), cnt * sizeof(SensorSample), MPI_BYTE, rAgg, TAG_FEAT, MPI_COMM_WORLD);
-
-      // Sleep until next tick boundary
+      if (cnt > 0)
+        MPI_Send(samples.data(), cnt * (int)sizeof(SensorSample), MPI_BYTE, rAgg, TAG_FEAT, MPI_COMM_WORLD);
       sleep_until_ms(tick_start + TICK_MS);
     }
   }
-
-  // ---------------- Aggregator ----------------
   else if (rank == rAgg)
   {
     Aggregator agg(acfg);
     std::vector<SensorSample> samples;
+<<<<<<< Updated upstream
     std::vector<Features> feats;
     std::vector<Features> thin; // thinned features under BP
 
@@ -130,15 +170,28 @@ int main(int argc, char **argv)
       int stride = stride_for_level(bp_level);
 
       // Receive this tick's samples from Ingestor
+=======
+    std::vector<Features> feats, thin;
+    for (uint32_t t = 0; t < TICKS; ++t)
+    {
+      int bp = 0;
+      drain_bp(bp);
+      int stride = stride_for_level(bp);
+
+>>>>>>> Stashed changes
       MPI_Status st;
       uint32_t tick_id;
       int cnt = 0;
       MPI_Recv(&tick_id, 1, MPI_UNSIGNED, rIng, TAG_FEAT, MPI_COMM_WORLD, &st);
       MPI_Recv(&cnt, 1, MPI_INT, rIng, TAG_FEAT, MPI_COMM_WORLD, &st);
-      samples.resize(cnt);
-      MPI_Recv(samples.data(), cnt * sizeof(SensorSample), MPI_BYTE, rIng, TAG_FEAT, MPI_COMM_WORLD, &st);
+      samples.resize(std::max(cnt, 0));
+      if (cnt > 0)
+        MPI_Recv(samples.data(), cnt * (int)sizeof(SensorSample), MPI_BYTE, rIng, TAG_FEAT, MPI_COMM_WORLD, &st);
 
+<<<<<<< Updated upstream
       // Map features
+=======
+>>>>>>> Stashed changes
       agg.map_features(samples, feats);
 
       // Thin features according to BP level by stride sampling
@@ -147,42 +200,46 @@ int main(int argc, char **argv)
       for (size_t i = 0; i < feats.size(); i += stride)
         thin.push_back(feats[i]);
 
-      // Scatter contiguous slices to predictors
-      int per = (int)thin.size() / P;
-      int cursor = 0;
+      int per = (P > 0) ? (int)thin.size() / P : 0, cursor = 0;
       for (int p = 0; p < P; ++p)
       {
-        int begin = cursor;
-        int end = (p == P - 1) ? (int)thin.size() : (cursor + per);
+        int begin = cursor, end = (p == P - 1) ? (int)thin.size() : (cursor + per);
         int n = end - begin;
         MPI_Send(&tick_id, 1, MPI_UNSIGNED, p + 1, TAG_FEAT, MPI_COMM_WORLD);
         MPI_Send(&n, 1, MPI_INT, p + 1, TAG_FEAT, MPI_COMM_WORLD);
         if (n > 0)
-          MPI_Send(thin.data() + begin, n * sizeof(Features), MPI_BYTE, p + 1, TAG_FEAT, MPI_COMM_WORLD);
+          MPI_Send(thin.data() + begin, n * (int)sizeof(Features), MPI_BYTE, p + 1, TAG_FEAT, MPI_COMM_WORLD);
         cursor = end;
       }
     }
   }
-
-  // ---------------- Predictor workers ----------------
   else if (rank >= 1 && rank <= P)
   {
     Predictor pred(pcfg);
     std::vector<Features> feats;
     std::vector<Prediction> preds;
+<<<<<<< Updated upstream
 
     for (uint32_t t = 0; t < TOTAL_TICKS; ++t)
+=======
+    for (uint32_t t = 0; t < TICKS; ++t)
+>>>>>>> Stashed changes
     {
       MPI_Status st;
       uint32_t tick_id;
       int n = 0;
       MPI_Recv(&tick_id, 1, MPI_UNSIGNED, P + 1, TAG_FEAT, MPI_COMM_WORLD, &st);
       MPI_Recv(&n, 1, MPI_INT, P + 1, TAG_FEAT, MPI_COMM_WORLD, &st);
+<<<<<<< Updated upstream
 
       feats.resize(n);
+=======
+      feats.resize(std::max(n, 0));
+>>>>>>> Stashed changes
       if (n > 0)
-        MPI_Recv(feats.data(), n * sizeof(Features), MPI_BYTE, P + 1, TAG_FEAT, MPI_COMM_WORLD, &st);
+        MPI_Recv(feats.data(), n * (int)sizeof(Features), MPI_BYTE, P + 1, TAG_FEAT, MPI_COMM_WORLD, &st);
 
+<<<<<<< Updated upstream
       // Prediction with per-slice budget; if exceed, ask Aggregator to thin next tick.
       Deadline dl{.start_ms = now_ms(), .budget_ms = BUDGET_PRED};
       pred.predict_batch(feats, preds);
@@ -195,17 +252,27 @@ int main(int argc, char **argv)
 
       // Send to Controller
       MPI_Send(&tick_id, 1, MPI_UNSIGNED, 0, TAG_PRED, MPI_COMM_WORLD);
+=======
+      Deadline dl{.start_ms = now_ms(), .budget_ms = BUDGET_P};
+      pred.predict_batch(feats, preds);
+      if (dl.elapsed() > BUDGET_P)
+      {
+        int level = 1;
+        send_bp_to_agg(P + 1, level);
+      }
+
+>>>>>>> Stashed changes
       int outn = (int)preds.size();
+      MPI_Send(&tick_id, 1, MPI_UNSIGNED, 0, TAG_PRED, MPI_COMM_WORLD);
       MPI_Send(&outn, 1, MPI_INT, 0, TAG_PRED, MPI_COMM_WORLD);
       if (outn > 0)
-        MPI_Send(preds.data(), outn * sizeof(Prediction), MPI_BYTE, 0, TAG_PRED, MPI_COMM_WORLD);
+        MPI_Send(preds.data(), outn * (int)sizeof(Prediction), MPI_BYTE, 0, TAG_PRED, MPI_COMM_WORLD);
     }
   }
-
-  // ---------------- Controller (real-time orchestrator) ----------------
-  else if (rank == rCtrl)
+  else if (rank == 0)
   {
     Controller ctrl(ccfg);
+<<<<<<< Updated upstream
 
     // Establish a firm timeline: first tick starts a bit in the future
     uint64_t base0 = now_ms();
@@ -214,19 +281,33 @@ int main(int argc, char **argv)
     uint32_t misses = 0;
 
     for (uint32_t t = 0; t < TOTAL_TICKS; ++t)
+=======
+    uint64_t base = now_ms(), first = base + 300;
+    uint32_t misses = 0;
+    for (uint32_t t = 0; t < TICKS; ++t)
+>>>>>>> Stashed changes
     {
-      uint64_t tick_start = first_tick_at + t * TICK_MS;
+      uint64_t tick_start = first + t * TICK_MS;
       uint64_t tick_end = tick_start + TICK_MS;
+<<<<<<< Updated upstream
 
       // Align to tick start (optional; keeps cadence clean)
+=======
+>>>>>>> Stashed changes
       sleep_until_ms(tick_start);
 
+      uint64_t t0 = now_ms();
       std::vector<Prediction> all;
       all.reserve(4096);
+<<<<<<< Updated upstream
 
       int received_from = 0;
       // Non-blocking gather loop until deadline or all predictors reported
       while (now_ms() < tick_end && received_from < P)
+=======
+      int received = 0;
+      while (now_ms() < tick_end && received < P)
+>>>>>>> Stashed changes
       {
         int flag = 0;
         MPI_Status st;
@@ -242,16 +323,16 @@ int main(int argc, char **argv)
         MPI_Recv(&tick_id, 1, MPI_UNSIGNED, st.MPI_SOURCE, TAG_PRED, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         MPI_Recv(&n, 1, MPI_INT, st.MPI_SOURCE, TAG_PRED, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         size_t off = all.size();
-        all.resize(off + n);
+        all.resize(off + std::max(n, 0));
         if (n > 0)
-          MPI_Recv(all.data() + off, n * sizeof(Prediction), MPI_BYTE, st.MPI_SOURCE, TAG_PRED, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        received_from++;
+          MPI_Recv(all.data() + off, n * (int)sizeof(Prediction), MPI_BYTE, st.MPI_SOURCE, TAG_PRED, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        received++;
       }
-
-      bool complete = (received_from == P);
+      bool complete = (received == P);
       if (!complete)
         misses++;
 
+<<<<<<< Updated upstream
       // Controller decision (budgeted)
       Deadline dctrl{.start_ms = now_ms(), .budget_ms = BUDGET_CTRL};
       std::vector<PhaseCmd> cmds;
@@ -259,16 +340,33 @@ int main(int argc, char **argv)
       (void)dctrl; // reserved for future accounting
 
       // Quick visibility: top1 and running miss ratio
+=======
+      Deadline dctrl{.start_ms = now_ms(), .budget_ms = BUDGET_C};
+      std::vector<PhaseCmd> cmds;
+      ctrl.decide(all, cmds, complete);
+      (void)dctrl;
+
+      // Find the true top0 safely:
+      uint32_t top0 = 9999u;
+>>>>>>> Stashed changes
       if (!all.empty())
       {
-        std::nth_element(all.begin(), all.begin() + 1, all.end(),
-                         [](const Prediction &a, const Prediction &b)
-                         { return a.congestion_60s > b.congestion_60s; });
+        auto it = std::max_element(all.begin(), all.end(),
+                                   [](const Prediction &a, const Prediction &b)
+                                   {
+                                     return a.congestion_60s < b.congestion_60s;
+                                   });
+        if (it != all.end())
+          top0 = it->junction;
       }
-      double miss_ratio = (double)misses / (double)(t + 1);
-      std::printf("[CTRL] tick %2u | slices %d/%d | preds=%zu | top0=%u | miss-ratio=%.2f\n",
-                  t, complete ? P : received_from, P, all.size(), all.empty() ? 9999 : all[0].junction, miss_ratio);
 
+      long long lat = (long long)(now_ms() - t0);
+      double miss_ratio = (double)misses / (double)(t + 1);
+      std::printf("[CTRL] tick %2u | slices %d/%d | preds=%zu | top0=%u | miss-ratio=%.2f | lat=%lldms\n",
+                  t, complete ? P : received, P, all.size(), top0, miss_ratio, lat);
+      std::fflush(stdout);
+
+<<<<<<< Updated upstream
       // If we missed the deadline, request stronger back-pressure for next tick.
       if (!complete)
       {
@@ -283,6 +381,9 @@ int main(int argc, char **argv)
       }
 
       // Hold the 1s cadence
+=======
+      send_bp_to_agg(P + 1, complete ? 0 : 1);
+>>>>>>> Stashed changes
       sleep_until_ms(tick_end);
     }
   }
